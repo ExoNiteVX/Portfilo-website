@@ -23,6 +23,34 @@ function getSessionId(): string {
   return sessionId
 }
 
+// Add this inside your ExoBot component, before the handleSend function
+
+useEffect(() => {
+  // 1. Function to ping the server
+  const wakeUpServer = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/health`);
+      if (res.ok) {
+        setIsOnline(true);
+        console.log("Backend is awake! 🚀");
+      }
+    } catch (err) {
+      setIsOnline(false);
+      console.log("Backend is still sleeping... 💤");
+    }
+  };
+
+  // 2. Run it immediately when the page loads
+  wakeUpServer();
+
+  // 3. SET THE ALARM: Ping every 45 seconds (45000 milliseconds)
+  // This prevents Render from turning off your server while someone is on your site.
+  const interval = setInterval(wakeUpServer, 45000);
+
+  // 4. Clean up the alarm if the user leaves the page
+  return () => clearInterval(interval);
+}, []);
+
 export function ExoBot() {
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([
