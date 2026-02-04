@@ -1,0 +1,172 @@
+"use client"
+
+import React, { useState, useRef, useEffect } from "react"
+import { MessageCircle, X, Send, Bot } from "lucide-react"
+import { Button } from "@/components/ui/button"
+
+// --- 1. THE PRODUCTION FIX ---
+// This line looks for the Vercel variable. If it's missing, it uses localhost.
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"; 
+
+interface Message {
+  id: number
+  text: string
+  sender: "user" | "bot"
+  timestamp: Date
+}
+
+function getSessionId(): string {
+  if (typeof window === "undefined") return "server"
+  let sessionId = sessionStorage.getItem("exobot_session")
+  if (!sessionId) {
+    sessionId = `session_${Date.now()}`
+    sessionStorage.setItem("exobot_session", sessionId)
+  }
+  return sessionId
+}
+
+export function ExoBot() {
+  const [isOpen, setIsOpen] = useState(false)
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: 1,
+      text: "System initialized. How can I assist you?",
+      sender: "bot",
+      timestamp: new Date(),
+    },
+  ])
+  const [inputValue, setInputValue] = useState("")
+  const [isTyping, setIsTyping] = useState(false)
+  const [isOnline, setIsOnline] = useState(false)
+  
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Scroll to bottom whenever messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
+
+  // EFFECT: Check if your Render Backend is awake
+  useEffect(() => {
+    const checkServer = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/health`)
+        if (res.ok) setIsOnline(true)
+      } catch (err) {
+        setIsOnline(false)
+        console.log("Backend currently unreachable.");
+      }
+    }
+    checkServer()
+  }, []) 
+
+  const handleSend = async () => {
+    if (!inputValue.trim() || isTyping) return
+
+    const userMsg: Message = {
+      id: Date.now(),
+      text: inputValue,
+      sender: "user",
+      timestamp: new Date(),
+    }
+
+    setMessages((prev) => [...prev, userMsg])
+    const textToSend = inputValue
+    setInputValue("")
+    setIsTyping(true)
+
+    try {
+      // --- 2. DYNAMIC URL CALL ---
+      const response = await fetch(`${API_BASE_URL}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: textToSend,
+          session_id: getSessionId(),
+        }),
+      })
+
+      const data = await response.json()
+      
+      if (response.ok) {
+        const botMsg: Message = {
+          id: Date.now() + 1,
+          text: data.response,
+          sender: "bot",
+          timestamp: new Date(),
+        }
+        setMessages((prev) => [...prev, botMsg])
+      }
+    } catch (error) {
+      console.error("Fetch Error:", error)
+      const errorMsg: Message = {
+        id: Date.now() + 1,
+        text: "I'm having trouble connecting to my brain (the server). Please wait a moment while I wake up.",
+        sender: "bot",
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, errorMsg])
+    } finally {
+      setIsTyping(false)
+    }
+  }
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  return (
+    <>
+      <div className={`fixed bottom-24 right-4 z-50 w-[calc(100%-2rem)] max-w-[350px] transition-all duration-300 ${isOpen ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0 pointer-events-none"}`}>
+        <div className="bg-card border border-primary/30 rounded-xl shadow-2xl overflow-hidden flex flex-col h-[450px]">
+          <div className="p-4 border-b border-primary/20 bg-secondary/50 flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Bot className={`w-5 h-5 ${isOnline ? "text-primary" : "text-muted-foreground"}`} />
+              <div>
+                <p className="text-sm font-bold">ExoBot v2.0</p>
+                <p className="text-[10px] uppercase font-semibold">{isOnline ? "● Live" : "○ Sleeping"}</p>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)}><X className="w-4 h-4"/></Button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-background/30 scrollbar-hide">
+            {messages.map((m) => (
+              <div key={m.id} className={`flex ${m.sender === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] p-3 rounded-xl text-xs ${m.sender === "user" ? "bg-primary text-primary-foreground" : "bg-secondary border border-primary/10"}`}>
+                  {m.text}
+                </div>
+              </div>
+            ))}
+            {isTyping && <div className="text-[10px] text-primary animate-pulse ml-2">ExoBot is thinking...</div>}
+            <div ref={messagesEndRef} />
+          </div>
+
+          <div className="p-3 bg-secondary/20 border-t border-primary/10">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyPress}
+                placeholder="Ask me about projects..."
+                className="flex-1 bg-background border border-primary/20 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-primary transition-all"
+              />
+              <Button onClick={handleSend} size="icon" className="h-8 w-8"><Send className="w-4 h-4"/></Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`fixed bottom-6 right-6 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:scale-110 transition-all duration-300 z-[60] ${isOpen ? 'rotate-90' : 'rotate-0'}`}
+      >
+        {isOpen ? <X /> : <MessageCircle />}
+      </button>
+    </>
+  )
+}
